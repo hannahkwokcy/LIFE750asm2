@@ -1,0 +1,4 @@
+##gff-version 3
+GeneX_reference	synthetic	gene	1	720	.	+	.	ID=GeneX;Name=GeneX
+GeneX_reference	synthetic	mRNA	1	720	.	+	.	ID=GeneX.t1;Parent=GeneX;Name=GeneX.t1
+GeneX_reference	synthetic	CDS	1	720	.	+	0	ID=GeneX.cds1;Parent=GeneX.t1
