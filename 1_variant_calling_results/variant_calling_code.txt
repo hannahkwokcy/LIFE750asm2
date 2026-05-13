@@ -1,0 +1,35 @@
+#ENVIRONMENT SETUP
+conda create -n variant_calling -c bioconda -c conda-forge fastqc bwa samtools freebayes bcftools bedtools
+conda activate variant_calling
+
+#DATA PREPARATION
+#index reference sequence
+bwa index GeneX_reference.fa
+
+#VARIANT CALLING FOR MUTANT READS
+#read mapping using "bwa mem" and "samtools" pipeline
+bwa mem -t 2 -R '@RG\tID:mutant\tSM:mutant\tPL:ILLUMINA' GeneX_reference.fa mutant_GeneX_R1.fastq mutant_GeneX_R2.fastq | samtools view -b -@ 2 | samtools sort -@ 2 -o mutant_GeneX_sorted.bam -
+
+#index bam file for visualisation on IGV
+samtools index -@ 2 mutant_GeneX_sorted.bam
+
+#variant calling
+freebayes --ploidy 1 --min-mapping-quality 30 --min-base-quality 25 --fasta-reference GeneX_reference.fa mutant_GeneX_sorted.bam > mutant_GeneX.vcf
+
+#filter the output file for high-quality variants
+bcftools view -e 'QUAL < 10 || INFO/DP < 10 || AF = 0' -O v -o mutant_GeneX_filtered.vcf mutant_GeneX.vcf
+cat mutant_GeneX.vcf
+
+#VARIANT CALLING FOR NORMAL READS
+#read mapping using "bwa mem" and "samtools" pipeline
+bwa mem -t 2 -R '@RG\tID:normal\tSM:normal\tPL:ILLUMINA' GeneX_reference.fa normal_GeneX_R1.fastq normal_GeneX_R2.fastq | samtools view -b -@ 2 | samtools sort -@ 2 -o normal_GeneX_sorted.bam -
+
+#index bam file for visualisation on IGV
+samtools index -@ 2 normal_GeneX_sorted.bam
+
+#variant calling
+freebayes --ploidy 1 --min-mapping-quality 30 --min-base-quality 25 --fasta-reference GeneX_reference.fa normal_GeneX_sorted.bam > normal_GeneX.vcf
+
+#filter the output file for high-quality variants
+bcftools view -e 'QUAL < 10 || INFO/DP < 10 || AF = 0' -O v -o normal_GeneX_filtered.vcf normal_GeneX.vcf
+cat normal_GeneX.vcf

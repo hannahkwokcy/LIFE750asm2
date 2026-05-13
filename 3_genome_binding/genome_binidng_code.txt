@@ -1,0 +1,1 @@
+bedtools intersect -a annotations/genes.gff3 -b cutrun/gene_x_binding_sites.bed -wa -wb > 3_genome_binding/bound_genes.txt
