@@ -1,58 +1,54 @@
 library(DESeq2)  
-# library needed for dataframe manipulation 
 library(tidyverse)
 library(dplyr)
 library(EnhancedVolcano)
 
-# Step 1: preparing count data ----------------
-
+#preparing counts data
 # read in counts data
 counts_data <- read.table('expression/gene_counts.tsv', sep = '\t', header = TRUE)
 head(counts_data)
+# convert the gene_id column into rownames
 rownames(counts_data) <- counts_data$gene_id
 counts_data <- counts_data[, -1]
 
 # read in sample info
 colData <- read.table('metadata/sample_metadata.tsv', sep = '\t', header = TRUE)
+# convert the sample name into rownames
 colData <- colData[order(colData$sample), ]
 rownames(colData) <- colData$sample
 
-# making sure the row names in colData matches to column names in counts_data
+# ensure  row names in colData matches column names in counts_data
 all(colnames(counts_data) %in% rownames(colData))
 
-# are they in the same order?
+# ensure both are in the same order
 all(colnames(counts_data) == rownames(colData))
 
-# Step 2: construct a DESeqDataSet object from counts data ----------
-
+# construct a DESeqDataSet from counts data 
 dds <- DESeqDataSetFromMatrix(countData = counts_data,
                               colData = colData,
                               design = ~ condition)
 dds
-# pre-filtering: removing rows with low gene counts
-# keeping rows that have at least 10 reads total
+
+# keep rows that have at least 10 reads total
 keep <- rowSums(counts(dds)) >= 10
 dds <- dds[keep,]
 dds
 
-# set the factor level
+# set factor level
 dds$condition <- relevel(dds$condition, ref = "normal")
 
-# NOTE: You can collapse technical replicates but not technical replicates
-
-# Step 3: Run DESeq ----------------------
+# run deseq
 dds <- DESeq(dds)
 res <- results(dds)
 
 # order by most significant p-value
 res <- res[order(res$padj), ]
 
-# Explore Results ----------------
+# view results
 summary(res)
 
 # order by most significant p-value
 res0.01 <- results(dds, alpha = 0.01)
-
 res0.01 <- res0.01[order(res0.01$padj), ]
 summary(res0.01)
 
@@ -62,38 +58,61 @@ resultsNames(dds)
 # MA plot
 plotMA(res)
 
+# examine p-values and log2FC distribution in histogram
+hist(res$padj, breaks=50, col="grey")
+hist(res$log2FoldChange, breaks=50, col="grey")
+
+# rlogTransformatio for heatmap construction
+rld <- rlogTransformation(dds)
+head(assay(rld))
+hist(assay(rld))
+
+# set parameters for colors
+library(RColorBrewer)
+(mycols <-
+    brewer.pal(8,"Dark2")[1:length(unique(colData$condition))]
+)
+# create sample distance heatmap
+sampleDists <- as.matrix(dist(t(assay(rld))))
+library(gplots)
+heatmap.2(as.matrix(sampleDists), key=F, trace="none",
+          col=colorpanel(100, "black", "white"),
+          ColSideColors=mycols[colData$condition],
+          RowSideColors=mycols[colData$condition],
+          margin=c(10,10), main="Sample Distance Matrix")
+
+# investigate sample similarities using pca
+plotPCA(rld, intgroup=c("condition"))
+
+# find top 5 most upregulated genes
 top_upregulated <- res0.01[order(res0.01$log2FoldChange, decreasing = TRUE), ]
 top_upregulated <- head(top_upregulated,5)
 print(top_upregulated)
 
+# find top 5 most downregulated genes
 top_downregulated <- res0.01[order(res0.01$log2FoldChange, decreasing = FALSE), ]
 top_downregulated <- head(top_downregulated,5)
 print(top_downregulated)
 
+# save list of top 10 genes
 top_genes <- c(rownames(top_upregulated), rownames(top_downregulated))
 
-#1. plot individual genes
-plotCounts(dds,gene=rownames(res)[which.min(res$padj)],intgroup="condition")
-
-#2. find variables + tests used
-mcols(res)$description
-
-
-#3. write results to file
+# write results to file
 res <- results(dds)
 table(res$padj<0.01)
-## Order by adjusted p-value
+# order by adjusted p-value
 res <- res[order(res$padj), ]
-## Merge with normalized count data
+# merge with normalized count data
 resdata <- merge(as.data.frame(res),
                  as.data.frame(counts(dds, normalized=TRUE)),
                  by="row.names", sort=FALSE)
 names(resdata)[1] <- "Gene"
 head(resdata)
-## Write results to a file
+# save results to a file
 write.table(resdata, file="diffexpr-results.txt",
             sep="\t", quote=F)
 
+# volcano plot to visualise sample distribution
 EnhancedVolcano(resdata,
                 lab = resdata$Gene,
                 x = "log2FoldChange",
@@ -110,47 +129,3 @@ EnhancedVolcano(resdata,
                 labSize = 3.0,
                 axisLabSize = 12
 )
-
-#4. examine p-values in histogram
-hist(res$padj, breaks=50, col="grey")
-hist(res$log2FoldChange, breaks=50, col="grey")
-
-#5. rlogTransformation is needed for heatmap
-rld <- rlogTransformation(dds)
-head(assay(rld))
-hist(assay(rld))
-# Colors for plots below
-library(RColorBrewer)
-(mycols <-
-    brewer.pal(8,"Dark2")[1:length(unique(colData$condition))]
-)
-# Sample distance heatmap
-sampleDists <- as.matrix(dist(t(assay(rld))))
-library(gplots)
-heatmap.2(as.matrix(sampleDists), key=F, trace="none",
-          col=colorpanel(100, "black", "white"),
-          ColSideColors=mycols[colData$condition],
-          RowSideColors=mycols[colData$condition],
-          margin=c(10,10), main="Sample Distance Matrix")
-
-#6. check sample similarities using pca
-plotPCA(rld, intgroup=c("condition"))
-
-#downstream analysis
-library(org.Hs.eg.db)
-library(clusterProfiler)
-resdata$Gene <- sapply(strsplit(resdata$Gene, "\\."),
-                       `[`, 1)
-universe <- resdata %>% pull(Gene)
-sigGenes <- resdata %>%
-  filter(padj < 0.01, !is.na(Gene)) %>% pull(Gene)
-enrich_go <- enrichGO(
-  gene= sigGenes,
-  OrgDb = org.Hs.eg.db,
-  keyType = "ENSEMBL",
-  ont = "BP",
-  universe = universe,
-  qvalueCutoff = 0.05,
-  readable=TRUE
-)
-dotplot(enrich_go,showCategory=15)
